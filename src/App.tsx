@@ -1,28 +1,52 @@
-
+import { useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+import AdminDashboard from "./pages/AdminDashboard";
+import OperatorDashboard from "./pages/OperatorDashboard";
 
-const queryClient = new QueryClient();
+export type UserRole = "admin" | "operator";
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
+export interface User {
+  id: string;
+  name: string;
+  phone: string;
+  position: string;
+  role: UserRole;
+}
+
+export type AppPage = "login" | "register" | "admin" | "operator";
+
+export default function App() {
+  const [page, setPage] = useState<AppPage>("login");
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  const handleLogin = (user: User) => {
+    setCurrentUser(user);
+    setPage(user.role === "admin" ? "admin" : "operator");
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setPage("login");
+  };
+
+  return (
     <TooltipProvider>
       <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
+      {page === "login" && (
+        <LoginPage onLogin={handleLogin} onRegister={() => setPage("register")} />
+      )}
+      {page === "register" && (
+        <RegisterPage onBack={() => setPage("login")} onSuccess={() => setPage("login")} />
+      )}
+      {page === "admin" && currentUser && (
+        <AdminDashboard user={currentUser} onLogout={handleLogout} />
+      )}
+      {page === "operator" && currentUser && (
+        <OperatorDashboard user={currentUser} onLogout={handleLogout} />
+      )}
     </TooltipProvider>
-  </QueryClientProvider>
-);
-
-export default App;
+  );
+}
