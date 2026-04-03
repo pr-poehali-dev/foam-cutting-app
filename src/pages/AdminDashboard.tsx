@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { User } from "../App";
 import Icon from "@/components/ui/icon";
+import { apiGetOrders, apiCreateOrder, apiAssignOrder, apiGetOperators, apiGetMaterialStats } from "@/lib/api";
 
 interface AdminDashboardProps {
   user: User;
@@ -26,19 +27,11 @@ interface Order {
   comment?: string;
 }
 
-const OPERATORS = [
-  { id: "2", name: "Козлов Дмитрий", line: "Линия №1" },
-  { id: "3", name: "Петрова Анна", line: "Линия №2" },
-  { id: "4", name: "Васильев Максим", line: "Линия №3" },
-];
-
-const INITIAL_ORDERS: Order[] = [
-  { id: "1", number: "ЗК-2024-001", client: "ООО «МебельТорг»", material: "ППУ-35", thickness: 80, dimensions: "2000×1000", quantity: 50, status: "in_progress", assignedTo: "2", assignedName: "Козлов Дмитрий", createdAt: "2024-04-01", dueDate: "2024-04-05", materialUsed: 120 },
-  { id: "2", number: "ЗК-2024-002", client: "ИП Николаев А.В.", material: "ППУ-25", thickness: 50, dimensions: "1600×800", quantity: 30, status: "new", assignedTo: null, assignedName: null, createdAt: "2024-04-02", dueDate: "2024-04-07" },
-  { id: "3", number: "ЗК-2024-003", client: "АО «Матрасы Юга»", material: "ППУ-40", thickness: 120, dimensions: "2000×1600", quantity: 100, status: "new", assignedTo: null, assignedName: null, createdAt: "2024-04-02", dueDate: "2024-04-10" },
-  { id: "4", number: "ЗК-2024-004", client: "ООО «КомфортДом»", material: "ППУ-35", thickness: 60, dimensions: "1800×900", quantity: 25, status: "done", assignedTo: "3", assignedName: "Петрова Анна", createdAt: "2024-03-28", dueDate: "2024-04-02", materialUsed: 95 },
-  { id: "5", number: "ЗК-2024-005", client: "ГК «Мягкий мир»", material: "ППУ-30", thickness: 40, dimensions: "2000×1000", quantity: 80, status: "paused", assignedTo: "4", assignedName: "Васильев Максим", createdAt: "2024-04-01", dueDate: "2024-04-08" },
-];
+interface Operator {
+  id: string;
+  name: string;
+  position: string;
+}
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; bg: string; icon: string }> = {
   new: { label: "Новая", color: "text-blue-700", bg: "bg-blue-50 border-blue-200", icon: "Circle" },
@@ -50,7 +43,10 @@ const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; bg: str
 type Tab = "orders" | "analytics" | "operators";
 
 export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [operators, setOperators] = useState<Operator[]>([]);
+  const [stats, setStats] = useState({ total: 0, new: 0, inProgress: 0, done: 0, totalMaterial: 0, avgPerOrder: 0, topOrders: [] as { id: number; number: string; client: string; materialUsed: number; operatorName: string }[] });
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("orders");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -63,8 +59,32 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleAssign = (orderId: string, operatorId: string) => {
-    const op = OPERATORS.find(o => o.id === operatorId);
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    const [ordersData, operatorsData, statsData] = await Promise.all([
+      apiGetOrders(),
+      apiGetOperators(),
+      apiGetMaterialStats(),
+    ]);
+    setOrders(ordersData);
+    setOperators(operatorsData);
+    setStats({
+      total: statsData.totalCount,
+      new: statsData.newCount,
+      inProgress: statsData.activeCount,
+      done: statsData.doneCount,
+      totalMaterial: statsData.totalMaterial,
+      avgPerOrder: statsData.avgPerOrder,
+      topOrders: statsData.topOrders,
+    });
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleAssign = async (orderId: string, operatorId: string) => {
+    const op = operators.find(o => o.id === operatorId);
+    await apiAssignOrder(orderId, operatorId, user.id);
     setOrders(prev => prev.map(o =>
       o.id === orderId ? { ...o, assignedTo: operatorId, assignedName: op?.name ?? null, status: "in_progress" } : o
     ));
@@ -72,39 +92,35 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
     showNotify(`Заявка назначена оператору ${op?.name}`);
   };
 
-  const handleCreateOrder = (e: React.FormEvent) => {
+  const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    const nextNum = `ЗК-2024-00${orders.length + 1}`;
-    const order: Order = {
-      id: String(Date.now()),
-      number: nextNum,
+    const result = await apiCreateOrder({
       client: newOrder.client,
       material: newOrder.material,
       thickness: Number(newOrder.thickness),
       dimensions: newOrder.dimensions,
       quantity: Number(newOrder.quantity),
-      status: "new",
-      assignedTo: null,
-      assignedName: null,
-      createdAt: new Date().toISOString().slice(0, 10),
-      dueDate: newOrder.dueDate,
-      comment: newOrder.comment,
-    };
-    setOrders(prev => [order, ...prev]);
+      dueDate: newOrder.dueDate || undefined,
+      comment: newOrder.comment || undefined,
+    }, user.id);
     setShowCreateModal(false);
     setNewOrder({ client: "", material: "ППУ-35", thickness: "", dimensions: "", quantity: "", dueDate: "", comment: "" });
-    showNotify("Заявка создана успешно");
+    showNotify(`Заявка ${result.number} создана`);
+    loadData();
   };
 
   const filteredOrders = filterStatus === "all" ? orders : orders.filter(o => o.status === filterStatus);
 
-  const stats = {
-    total: orders.length,
-    new: orders.filter(o => o.status === "new").length,
-    inProgress: orders.filter(o => o.status === "in_progress").length,
-    done: orders.filter(o => o.status === "done").length,
-    totalMaterial: orders.reduce((sum, o) => sum + (o.materialUsed ?? 0), 0),
-  };
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+          <p className="text-muted-foreground text-sm">Загрузка данных...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background font-golos flex flex-col">
@@ -270,7 +286,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
               {[
                 { label: "Израсходовано сырья", value: `${stats.totalMaterial} кг`, icon: "Package", sub: "за текущий период", color: "text-amber-600" },
                 { label: "Выполнено заявок", value: stats.done, icon: "CheckCircle2", sub: "успешно закрыто", color: "text-green-600" },
-                { label: "Средний расход", value: `${stats.done > 0 ? Math.round(stats.totalMaterial / stats.done) : 0} кг/заявку`, icon: "TrendingUp", sub: "на одну заявку", color: "text-blue-600" },
+                { label: "Средний расход", value: `${stats.avgPerOrder} кг/заявку`, icon: "TrendingUp", sub: "на одну заявку", color: "text-blue-600" },
               ].map(({ label, value, icon, sub, color }) => (
                 <div key={label} className="bg-card border border-border rounded-xl p-5">
                   <div className="flex items-start justify-between mb-3">
@@ -290,7 +306,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
             <div className="bg-card border border-border rounded-xl p-6">
               <h3 className="font-semibold text-foreground mb-4">Расход сырья по заявкам</h3>
               <div className="space-y-3">
-                {orders.filter(o => o.materialUsed).map(o => (
+                {stats.topOrders.map(o => (
                   <div key={o.id} className="flex items-center gap-4">
                     <div className="w-28 text-xs text-muted-foreground font-mono-custom truncate">{o.number}</div>
                     <div className="flex-1">
@@ -301,13 +317,13 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
                       <div className="h-2 rounded-full bg-muted overflow-hidden">
                         <div
                           className="h-full rounded-full bg-primary transition-all"
-                          style={{ width: `${Math.min(100, ((o.materialUsed ?? 0) / 200) * 100)}%` }}
+                          style={{ width: `${Math.min(100, (o.materialUsed / Math.max(...stats.topOrders.map(x => x.materialUsed), 1)) * 100)}%` }}
                         />
                       </div>
                     </div>
                   </div>
                 ))}
-                {orders.filter(o => o.materialUsed).length === 0 && (
+                {stats.topOrders.length === 0 && (
                   <p className="text-muted-foreground text-sm text-center py-8">Нет данных о расходе сырья</p>
                 )}
               </div>
@@ -319,7 +335,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
           <div className="animate-fade-in">
             <h2 className="text-xl font-bold mb-6 text-foreground">Операторы</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {OPERATORS.map(op => {
+              {operators.map(op => {
                 const opOrders = orders.filter(o => o.assignedTo === op.id);
                 const done = opOrders.filter(o => o.status === "done").length;
                 const inProgress = opOrders.filter(o => o.status === "in_progress").length;
@@ -332,7 +348,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
                       </div>
                       <div>
                         <div className="font-semibold text-foreground text-sm">{op.name}</div>
-                        <div className="text-xs text-muted-foreground">{op.line}</div>
+                        <div className="text-xs text-muted-foreground">{op.position}</div>
                       </div>
                       <div className={`ml-auto w-2 h-2 rounded-full ${inProgress > 0 ? "bg-green-500 animate-pulse-ring" : "bg-muted-foreground/30"}`} />
                     </div>
@@ -423,7 +439,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
               </button>
             </div>
             <div className="p-5 space-y-2">
-              {OPERATORS.map(op => (
+              {operators.map(op => (
                 <button
                   key={op.id}
                   onClick={() => handleAssign(showAssignModal, op.id)}
@@ -434,7 +450,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
                   </div>
                   <div>
                     <div className="font-medium text-foreground text-sm">{op.name}</div>
-                    <div className="text-xs text-muted-foreground">{op.line}</div>
+                    <div className="text-xs text-muted-foreground">{op.position}</div>
                   </div>
                   <Icon name="ChevronRight" size={16} className="text-muted-foreground ml-auto" />
                 </button>

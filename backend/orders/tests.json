@@ -4,13 +4,17 @@
       "name": "Get all orders",
       "method": "GET",
       "path": "/",
-      "expectedStatus": 200
+      "expectedStatus": 200,
+      "expectedBody": {"orders": []},
+      "bodyMatcher": "partial"
     },
     {
-      "name": "Get orders for operator 2",
+      "name": "Get orders filtered by status",
       "method": "GET",
-      "path": "/?operator_id=2",
-      "expectedStatus": 200
+      "path": "/?status=new",
+      "expectedStatus": 200,
+      "expectedBody": {"orders": []},
+      "bodyMatcher": "partial"
     }
   ]
 }

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Icon from "@/components/ui/icon";
+import { apiRegister } from "@/lib/api";
 
 interface RegisterPageProps {
   onBack: () => void;
@@ -39,13 +40,20 @@ export default function RegisterPage({ onBack, onSuccess }: RegisterPageProps) {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    setError("");
+    try {
+      await apiRegister(form);
       setSubmitted(true);
-    }, 800);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Ошибка регистрации");
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (submitted) {
@@ -144,6 +152,13 @@ export default function RegisterPage({ onBack, onSuccess }: RegisterPageProps) {
                 />
               </div>
             </div>
+
+            {error && (
+              <p className="text-destructive text-sm flex items-center gap-1.5 animate-fade-in">
+                <Icon name="AlertCircle" size={14} />
+                {error}
+              </p>
+            )}
 
             <div className="pt-2">
               <button

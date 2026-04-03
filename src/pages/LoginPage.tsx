@@ -1,17 +1,12 @@
 import { useState } from "react";
-import { User, UserRole } from "../App";
+import { User } from "../App";
 import Icon from "@/components/ui/icon";
+import { apiLogin } from "@/lib/api";
 
 interface LoginPageProps {
   onLogin: (user: User) => void;
   onRegister: () => void;
 }
-
-const DEMO_USERS: User[] = [
-  { id: "1", name: "Смирнов Алексей Петрович", phone: "+7 (900) 000-00-01", position: "Главный технолог", role: "admin" },
-  { id: "2", name: "Козлов Дмитрий Иванович", phone: "+7 (900) 000-00-02", position: "Оператор линии №1", role: "operator" },
-  { id: "3", name: "Петрова Анна Сергеевна", phone: "+7 (900) 000-00-03", position: "Оператор линии №2", role: "operator" },
-];
 
 export default function LoginPage({ onLogin, onRegister }: LoginPageProps) {
   const [phone, setPhone] = useState("");
@@ -34,18 +29,17 @@ export default function LoginPage({ onLogin, onRegister }: LoginPageProps) {
     setError("");
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => {
-      const user = DEMO_USERS.find(u => u.phone === phone);
-      if (user) {
-        onLogin(user);
-      } else {
-        setError("Пользователь с таким номером не найден");
-      }
+    try {
+      const user = await apiLogin(phone);
+      onLogin(user);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Ошибка входа");
+    } finally {
       setLoading(false);
-    }, 600);
+    }
   };
 
   return (
@@ -83,7 +77,7 @@ export default function LoginPage({ onLogin, onRegister }: LoginPageProps) {
           ].map(({ icon, label, desc }) => (
             <div key={label} className="flex items-start gap-4 mb-6 animate-fade-in">
               <div className="w-9 h-9 rounded bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <Icon name={icon as any} size={16} className="text-accent" />
+                <Icon name={icon} fallback="Circle" size={16} className="text-accent" />
               </div>
               <div>
                 <div className="text-white font-medium text-sm">{label}</div>

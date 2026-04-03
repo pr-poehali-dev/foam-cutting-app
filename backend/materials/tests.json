@@ -1,16 +1,20 @@
 {
   "tests": [
     {
+      "name": "Get material stats",
+      "method": "GET",
+      "path": "/?action=stats",
+      "expectedStatus": 200,
+      "expectedBody": {"totalMaterial": 0},
+      "bodyMatcher": "partial"
+    },
+    {
       "name": "Get material logs",
       "method": "GET",
       "path": "/",
-      "expectedStatus": 200
-    },
-    {
-      "name": "Get stats",
-      "method": "GET",
-      "path": "/?stats=1",
-      "expectedStatus": 200
+      "expectedStatus": 200,
+      "expectedBody": {"logs": []},
+      "bodyMatcher": "partial"
     }
   ]
 }

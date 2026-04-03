@@ -1,8 +1,8 @@
 """
 Авторизация и регистрация пользователей завода по резке поролона.
-POST /login — вход по номеру телефона
-POST /register — заявка на регистрацию
-GET /operators — список операторов (для админа)
+POST / + body.action=login — вход по номеру телефона
+POST / + body.action=register — заявка на регистрацию
+GET / — список операторов (для выбора при назначении)
 """
 
 import os
@@ -28,23 +28,22 @@ def handler(event: dict, context) -> dict:
         return {"statusCode": 200, "headers": CORS_HEADERS, "body": ""}
 
     method = event.get("httpMethod", "GET")
-    path = event.get("path", "/")
-
-    # GET /operators
-    if method == "GET" and path.endswith("/operators"):
-        return get_operators()
 
     body = {}
     if event.get("body"):
         body = json.loads(event["body"])
 
-    # POST /login
-    if method == "POST" and path.endswith("/login"):
-        return login(body)
+    # GET — вернуть список операторов
+    if method == "GET":
+        return get_operators()
 
-    # POST /register
-    if method == "POST" and path.endswith("/register"):
-        return register(body)
+    # POST — действие по action
+    if method == "POST":
+        action = body.get("action", "login")
+        if action == "login":
+            return login(body)
+        if action == "register":
+            return register(body)
 
     return {"statusCode": 404, "headers": CORS_HEADERS, "body": json.dumps({"error": "Not found"})}
 

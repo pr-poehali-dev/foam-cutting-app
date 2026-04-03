@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { User } from "../App";
 import Icon from "@/components/ui/icon";
+import { apiGetOrders, apiUpdateOrderStatus, apiLogMaterial } from "@/lib/api";
 
 interface OperatorDashboardProps {
   user: User;
@@ -24,10 +25,7 @@ interface Order {
   isNew?: boolean;
 }
 
-const INITIAL_ORDERS: Order[] = [
-  { id: "1", number: "ЗК-2024-001", client: "ООО «МебельТорг»", material: "ППУ-35", thickness: 80, dimensions: "2000×1000", quantity: 50, status: "in_progress", dueDate: "2024-04-05", materialUsed: 120, isNew: false },
-  { id: "6", number: "ЗК-2024-006", client: "ЗАО «СофтМебель»", material: "ППУ-30", thickness: 60, dimensions: "1800×800", quantity: 20, status: "new", dueDate: "2024-04-09", isNew: true },
-];
+
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; bg: string; icon: string }> = {
   new: { label: "Новая", color: "text-blue-700", bg: "bg-blue-50 border-blue-200", icon: "Circle" },
@@ -39,7 +37,8 @@ const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; bg: str
 type ActiveView = "list" | "material_entry";
 
 export default function OperatorDashboard({ user, onLogout }: OperatorDashboardProps) {
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeView, setActiveView] = useState<ActiveView>("list");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [materialForm, setMaterialForm] = useState({ amount: "", unit: "кг", notes: "" });
@@ -51,21 +50,34 @@ export default function OperatorDashboard({ user, onLogout }: OperatorDashboardP
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleStartWork = (orderId: string) => {
+  const loadOrders = useCallback(async () => {
+    setLoading(true);
+    const data = await apiGetOrders({ operator_id: user.id });
+    // mark new orders
+    const withNew = data.map((o: Order) => ({ ...o, isNew: o.status === "new" }));
+    setOrders(withNew);
+    setLoading(false);
+  }, [user.id]);
+
+  useEffect(() => { loadOrders(); }, [loadOrders]);
+
+  const handleStartWork = async (orderId: string) => {
+    await apiUpdateOrderStatus(orderId, "in_progress", user.id);
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "in_progress", isNew: false } : o));
     showNotify("Заявка принята в работу");
   };
 
   const handleOpenMaterial = (order: Order) => {
     setSelectedOrder(order);
-    setMaterialForm({ amount: String(order.materialUsed ?? ""), unit: "кг", notes: "" });
+    setMaterialForm({ amount: "", unit: "кг", notes: "" });
     setActiveView("material_entry");
   };
 
-  const handleSaveMaterial = (e: React.FormEvent) => {
+  const handleSaveMaterial = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOrder) return;
     const amount = Number(materialForm.amount);
+    await apiLogMaterial({ orderId: selectedOrder.id, amount, unit: materialForm.unit, notes: materialForm.notes }, user.id);
     setOrders(prev => prev.map(o =>
       o.id === selectedOrder.id ? { ...o, materialUsed: (o.materialUsed ?? 0) + amount } : o
     ));
@@ -74,7 +86,8 @@ export default function OperatorDashboard({ user, onLogout }: OperatorDashboardP
     showNotify(`Расход ${amount} ${materialForm.unit} зафиксирован`);
   };
 
-  const handleFinish = (orderId: string) => {
+  const handleFinish = async (orderId: string) => {
+    await apiUpdateOrderStatus(orderId, "done", user.id);
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "done" } : o));
     showNotify("Заявка отмечена как выполненная");
   };
@@ -87,6 +100,17 @@ export default function OperatorDashboard({ user, onLogout }: OperatorDashboardP
     newCount: orders.filter(o => o.isNew).length,
     totalMaterial: orders.reduce((sum, o) => sum + (o.materialUsed ?? 0), 0),
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+          <p className="text-muted-foreground text-sm">Загрузка заявок...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background font-golos flex flex-col">

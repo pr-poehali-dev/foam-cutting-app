@@ -1,16 +1,14 @@
 """
 Управление заявками на резку поролона.
-GET / — список заявок (фильтр по статусу, оператору)
-POST / — создать заявку (только admin)
-PUT /{id}/assign — назначить оператора (только admin)
-PUT /{id}/status — изменить статус
-GET /{id} — детали заявки
+GET / — список заявок (?status=..., ?operator_id=...)
+POST / + action=create — создать заявку
+POST / + action=assign — назначить оператора
+POST / + action=update_status — изменить статус
 """
 
 import os
 import json
 import psycopg2
-from datetime import date
 
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p7983100_foam_cutting_app")
 
@@ -26,59 +24,34 @@ def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
 
-def json_serial(obj):
-    if isinstance(obj, date):
-        return obj.isoformat()
-    raise TypeError(f"Type {type(obj)} not serializable")
-
-
 def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS_HEADERS, "body": ""}
 
     method = event.get("httpMethod", "GET")
-    path = event.get("path", "/")
     qs = event.get("queryStringParameters") or {}
-    user_id = event.get("headers", {}).get("X-User-Id")
+    user_id = (event.get("headers") or {}).get("X-User-Id")
 
     body = {}
     if event.get("body"):
         body = json.loads(event["body"])
 
-    # PUT /{id}/assign
-    if method == "PUT" and "/assign" in path:
-        order_id = path.rstrip("/assign").split("/")[-2] if path.endswith("/assign") else path.split("/")[-2]
-        parts = [p for p in path.split("/") if p]
-        if len(parts) >= 2:
-            order_id = parts[-2]
-        return assign_order(order_id, body, user_id)
-
-    # PUT /{id}/status
-    if method == "PUT" and "/status" in path:
-        parts = [p for p in path.split("/") if p]
-        if len(parts) >= 2:
-            order_id = parts[-2]
-        return update_status(order_id, body, user_id)
-
-    # GET /{id} or PUT /{id}
-    parts = [p for p in path.split("/") if p]
-    if len(parts) >= 1 and parts[-1].isdigit():
-        order_id = parts[-1]
-        if method == "GET":
-            return get_order(order_id)
-
-    # GET / — list
     if method == "GET":
-        return list_orders(qs, user_id)
+        return list_orders(qs)
 
-    # POST / — create
     if method == "POST":
-        return create_order(body, user_id)
+        action = body.get("action", "create")
+        if action == "create":
+            return create_order(body, user_id)
+        if action == "assign":
+            return assign_order(body)
+        if action == "update_status":
+            return update_status(body)
 
     return {"statusCode": 404, "headers": CORS_HEADERS, "body": json.dumps({"error": "Not found"})}
 
 
-def list_orders(qs: dict, user_id: str) -> dict:
+def list_orders(qs: dict) -> dict:
     conn = get_conn()
     cur = conn.cursor()
 
@@ -138,39 +111,6 @@ def list_orders(qs: dict, user_id: str) -> dict:
     return {"statusCode": 200, "headers": CORS_HEADERS, "body": json.dumps({"orders": orders})}
 
 
-def get_order(order_id: str) -> dict:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(f"""
-        SELECT o.id, o.number, o.client, o.material, o.thickness, o.dimensions,
-               o.quantity, o.status, o.assigned_to,
-               u.last_name || ' ' || u.first_name as assigned_name,
-               o.due_date, o.comment, o.created_at,
-               COALESCE(SUM(ml.amount), 0) as material_used
-        FROM {SCHEMA}.orders o
-        LEFT JOIN {SCHEMA}.users u ON o.assigned_to = u.id
-        LEFT JOIN {SCHEMA}.material_logs ml ON ml.order_id = o.id
-        WHERE o.id = %s
-        GROUP BY o.id, o.number, o.client, o.material, o.thickness, o.dimensions,
-                 o.quantity, o.status, o.assigned_to, assigned_name, o.due_date, o.comment, o.created_at
-    """, (int(order_id),))
-    r = cur.fetchone()
-    cur.close()
-    conn.close()
-
-    if not r:
-        return {"statusCode": 404, "headers": CORS_HEADERS, "body": json.dumps({"error": "Заявка не найдена"})}
-
-    order = {
-        "id": str(r[0]), "number": r[1], "client": r[2], "material": r[3],
-        "thickness": r[4], "dimensions": r[5], "quantity": r[6], "status": r[7],
-        "assignedTo": str(r[8]) if r[8] else None, "assignedName": r[9],
-        "dueDate": r[10].isoformat() if r[10] else None, "comment": r[11],
-        "createdAt": r[12].isoformat() if r[12] else None, "materialUsed": float(r[13]),
-    }
-    return {"statusCode": 200, "headers": CORS_HEADERS, "body": json.dumps({"order": order})}
-
-
 def create_order(body: dict, user_id: str) -> dict:
     required = ["client", "material", "thickness", "dimensions", "quantity"]
     for field in required:
@@ -202,10 +142,11 @@ def create_order(body: dict, user_id: str) -> dict:
     return {"statusCode": 201, "headers": CORS_HEADERS, "body": json.dumps({"id": str(row[0]), "number": row[1]})}
 
 
-def assign_order(order_id: str, body: dict, user_id: str) -> dict:
+def assign_order(body: dict) -> dict:
+    order_id = body.get("orderId")
     operator_id = body.get("operatorId")
-    if not operator_id:
-        return {"statusCode": 400, "headers": CORS_HEADERS, "body": json.dumps({"error": "operatorId обязателен"})}
+    if not order_id or not operator_id:
+        return {"statusCode": 400, "headers": CORS_HEADERS, "body": json.dumps({"error": "orderId и operatorId обязательны"})}
 
     conn = get_conn()
     cur = conn.cursor()
@@ -225,11 +166,12 @@ def assign_order(order_id: str, body: dict, user_id: str) -> dict:
     return {"statusCode": 200, "headers": CORS_HEADERS, "body": json.dumps({"success": True})}
 
 
-def update_status(order_id: str, body: dict, user_id: str) -> dict:
+def update_status(body: dict) -> dict:
+    order_id = body.get("orderId")
     status = body.get("status")
     allowed = ["new", "in_progress", "done", "paused"]
-    if status not in allowed:
-        return {"statusCode": 400, "headers": CORS_HEADERS, "body": json.dumps({"error": "Недопустимый статус"})}
+    if not order_id or status not in allowed:
+        return {"statusCode": 400, "headers": CORS_HEADERS, "body": json.dumps({"error": "orderId и допустимый status обязательны"})}
 
     conn = get_conn()
     cur = conn.cursor()
