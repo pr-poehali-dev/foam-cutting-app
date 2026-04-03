@@ -1,0 +1,16 @@
+{
+  "tests": [
+    {
+      "name": "Get material logs",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Get stats",
+      "method": "GET",
+      "path": "/?stats=1",
+      "expectedStatus": 200
+    }
+  ]
+}

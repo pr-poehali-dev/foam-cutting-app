@@ -1,0 +1,6 @@
+{
+  "auth": "https://functions.poehali.dev/690e8c79-d81b-47a9-ae8f-f7f081f43f05",
+  "orders": "https://functions.poehali.dev/799005ae-1861-4f62-91e9-eb564ed5550d",
+  "materials": "https://functions.poehali.dev/d6de806c-775e-4fe4-85a2-37dd6ba72a51",
+  "users": "https://functions.poehali.dev/5ed629aa-216b-4700-a04b-507ec9ff2c0e"
+}

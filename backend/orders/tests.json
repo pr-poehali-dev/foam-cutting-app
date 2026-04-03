@@ -1,0 +1,16 @@
+{
+  "tests": [
+    {
+      "name": "Get all orders",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Get orders for operator 2",
+      "method": "GET",
+      "path": "/?operator_id=2",
+      "expectedStatus": 200
+    }
+  ]
+}

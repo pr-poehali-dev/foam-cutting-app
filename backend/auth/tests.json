@@ -1,0 +1,29 @@
+{
+  "tests": [
+    {
+      "name": "Login success (admin)",
+      "method": "POST",
+      "path": "/login",
+      "body": {"phone": "+7 (900) 000-00-01"},
+      "expectedStatus": 200,
+      "expectedBody": {"user": {"role": "admin"}},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Login fail (wrong phone)",
+      "method": "POST",
+      "path": "/login",
+      "body": {"phone": "+7 (999) 999-99-99"},
+      "expectedStatus": 401,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get operators list",
+      "method": "GET",
+      "path": "/operators",
+      "expectedStatus": 200,
+      "expectedBody": {"operators": []},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
